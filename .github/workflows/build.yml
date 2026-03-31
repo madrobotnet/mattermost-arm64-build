@@ -15,10 +15,11 @@ on:
     paths:
       - Dockerfile
       - README.md
+      - VERSION
       - .github/workflows/build.yml
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 concurrency:
@@ -38,13 +39,32 @@ jobs:
         env:
           INPUT_VERSION: ${{ inputs.version }}
           GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
 
+          CURRENT_VERSION=""
+          if [ -f VERSION ]; then
+            CURRENT_VERSION="$(tr -d '[:space:]' < VERSION)"
+          fi
+
           if [ -n "${INPUT_VERSION:-}" ]; then
             VERSION="${INPUT_VERSION#v}"
+            SHOULD_BUILD="true"
+            REASON="manual version override"
           else
             VERSION="$(gh api repos/mattermost/mattermost/releases/latest --jq '.tag_name' | sed 's/^v//')"
+            if [ "$EVENT_NAME" = "schedule" ] && [ -n "$CURRENT_VERSION" ] && [ "$CURRENT_VERSION" = "$VERSION" ]; then
+              SHOULD_BUILD="false"
+              REASON="scheduled check found no new upstream release"
+            else
+              SHOULD_BUILD="true"
+              if [ -n "$CURRENT_VERSION" ] && [ "$CURRENT_VERSION" != "$VERSION" ]; then
+                REASON="upstream release changed: $CURRENT_VERSION -> $VERSION"
+              else
+                REASON="build triggered by $EVENT_NAME"
+              fi
+            fi
           fi
 
           test -n "$VERSION"
@@ -53,24 +73,31 @@ jobs:
           TARBALL_URL="https://releases.mattermost.com/${VERSION}/mattermost-${VERSION}-linux-arm64.tar.gz"
           IMAGE="ghcr.io/${{ github.repository }}"
 
+          echo "current_version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "major=$MAJOR" >> "$GITHUB_OUTPUT"
           echo "minor=$MINOR" >> "$GITHUB_OUTPUT"
           echo "tarball_url=$TARBALL_URL" >> "$GITHUB_OUTPUT"
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "should_build=$SHOULD_BUILD" >> "$GITHUB_OUTPUT"
+          echo "reason=$REASON" >> "$GITHUB_OUTPUT"
 
       - name: Verify upstream tarball exists
+        if: steps.version.outputs.should_build == 'true'
         shell: bash
         run: |
           curl -I -fsSL "${{ steps.version.outputs.tarball_url }}" >/dev/null
 
       - name: Set up QEMU
+        if: steps.version.outputs.should_build == 'true'
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
+        if: steps.version.outputs.should_build == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
+        if: steps.version.outputs.should_build == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -78,6 +105,7 @@ jobs:
           password: ${{ github.token }}
 
       - name: Extract metadata
+        if: steps.version.outputs.should_build == 'true'
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -96,6 +124,7 @@ jobs:
             org.opencontainers.image.url=https://github.com/${{ github.repository }}
 
       - name: Build and push image
+        if: steps.version.outputs.should_build == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -108,14 +137,39 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           provenance: false
 
+      - name: Update VERSION marker
+        if: steps.version.outputs.should_build == 'true' && steps.version.outputs.current_version != steps.version.outputs.version
+        shell: bash
+        run: |
+          printf '%s\n' "${{ steps.version.outputs.version }}" > VERSION
+
+      - name: Commit VERSION marker
+        if: steps.version.outputs.should_build == 'true' && steps.version.outputs.current_version != steps.version.outputs.version
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add VERSION
+          git commit -m "chore: record upstream Mattermost ${{ steps.version.outputs.version }}"
+          git push
+
       - name: Summary
         shell: bash
         run: |
           {
             echo '## Mattermost ARM64 build result'
             echo
-            echo "- Version: \\`${{ steps.version.outputs.version }}\\`"
-            echo "- Tarball: ${{ steps.version.outputs.tarball_url }}"
-            echo "- Image: \\`${{ steps.version.outputs.image }}\\`"
-            echo "- Tags pushed: \\`${{ steps.version.outputs.version }}\\`, \\`${{ steps.version.outputs.minor }}\\`, \\`${{ steps.version.outputs.major }}\\`, \\`latest\\`"
+            echo "- Trigger: ${{ github.event_name }}"
+            echo "- Decision: ${{ steps.version.outputs.should_build }}"
+            echo "- Reason: ${{ steps.version.outputs.reason }}"
+            echo "- Current recorded version: ${CURRENT:-${{ steps.version.outputs.current_version }}}"
+            echo "- Target version: ${{ steps.version.outputs.version }}"
+            if [ "${{ steps.version.outputs.should_build }}" = "true" ]; then
+              echo "- Tarball: ${{ steps.version.outputs.tarball_url }}"
+              echo "- Image: \\`${{ steps.version.outputs.image }}\\`"
+              echo "- Tags pushed: \\`${{ steps.version.outputs.version }}\\`, \\`${{ steps.version.outputs.minor }}\\`, \\`${{ steps.version.outputs.major }}\\`, \\`latest\\`"
+            else
+              echo '- Build skipped because no new upstream release was detected.'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
