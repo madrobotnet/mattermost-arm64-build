@@ -70,7 +70,7 @@ jobs:
           test -n "$VERSION"
           MAJOR="${VERSION%%.*}"
           MINOR="$(echo "$VERSION" | cut -d. -f1,2)"
-          TARBALL_URL="https://releases.mattermost.com/${VERSION}/mattermost-${VERSION}-linux-arm64.tar.gz"
+          TARBALL_URL="https://releases.mattermost.com/${VERSION}/mattermost-team-${VERSION}-linux-arm64.tar.gz"
           IMAGE="ghcr.io/${{ github.repository }}"
 
           echo "current_version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
@@ -116,8 +116,8 @@ jobs:
             type=raw,value=${{ steps.version.outputs.major }}
             type=raw,value=latest
           labels: |
-            org.opencontainers.image.title=Mattermost ARM64 Build
-            org.opencontainers.image.description=ARM64 Mattermost image built from official Mattermost releases
+            org.opencontainers.image.title=Mattermost Team Edition ARM64 Build
+            org.opencontainers.image.description=ARM64 Mattermost Team Edition image built from official Mattermost releases
             org.opencontainers.image.vendor=madrobot-collab
             org.opencontainers.image.version=${{ steps.version.outputs.version }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}

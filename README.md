@@ -1,11 +1,11 @@
 # mattermost-arm64-build
 
-ARM64 서버용 Mattermost 이미지를 공식 Mattermost 릴리스 기준으로 빌드해서 GHCR에 푸시하는 빌드 전용 저장소입니다.
+ARM64 서버용 Mattermost Team Edition 이미지를 공식 Mattermost 릴리스 기준으로 빌드해서 GHCR에 푸시하는 빌드 전용 저장소입니다.
 
 ## 목적
 
 - 업스트림 기준: `mattermost/mattermost` 릴리스 버전
-- 빌드 소스: `https://releases.mattermost.com/<version>/mattermost-<version>-linux-arm64.tar.gz`
+- 빌드 소스: `https://releases.mattermost.com/<version>/mattermost-team-<version>-linux-arm64.tar.gz`
 - 배포 대상: `ghcr.io/madrobot-collab/mattermost-arm64-build`
 - 운영 원칙: 서버는 제3자 이미지를 직접 pull하지 않고, 이 저장소가 만든 이미지만 사용
 
@@ -17,7 +17,7 @@ ARM64 서버용 Mattermost 이미지를 공식 Mattermost 릴리스 기준으로
 - 업스트림 최신 릴리스가 바뀌었으면: **즉시 ARM64 이미지 빌드 후 GHCR 갱신**
 - 마지막 반영 버전은 저장소 루트의 `VERSION` 파일에 기록됩니다.
 
-즉, 이 저장소는 **공식 Mattermost release 변경 감지 → 우리 GHCR latest 갱신** 흐름으로 동작합니다.
+즉, 이 저장소는 **공식 Mattermost Team release 변경 감지 → 우리 GHCR latest 갱신** 흐름으로 동작합니다.
 
 ## 이미지 태그 정책
 
