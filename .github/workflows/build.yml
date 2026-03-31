@@ -1,0 +1,121 @@
+name: Build and Publish Mattermost ARM64
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Mattermost version to build (e.g. 11.5.1). Leave empty to use latest release."
+        required: false
+        type: string
+  schedule:
+    - cron: '23 2 * * *'
+  push:
+    branches:
+      - main
+    paths:
+      - Dockerfile
+      - README.md
+      - .github/workflows/build.yml
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: mattermost-arm64-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve Mattermost version
+        id: version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${INPUT_VERSION:-}" ]; then
+            VERSION="${INPUT_VERSION#v}"
+          else
+            VERSION="$(gh api repos/mattermost/mattermost/releases/latest --jq '.tag_name' | sed 's/^v//')"
+          fi
+
+          test -n "$VERSION"
+          MAJOR="${VERSION%%.*}"
+          MINOR="$(echo "$VERSION" | cut -d. -f1,2)"
+          TARBALL_URL="https://releases.mattermost.com/${VERSION}/mattermost-${VERSION}-linux-arm64.tar.gz"
+          IMAGE="ghcr.io/${{ github.repository }}"
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "major=$MAJOR" >> "$GITHUB_OUTPUT"
+          echo "minor=$MINOR" >> "$GITHUB_OUTPUT"
+          echo "tarball_url=$TARBALL_URL" >> "$GITHUB_OUTPUT"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Verify upstream tarball exists
+        shell: bash
+        run: |
+          curl -I -fsSL "${{ steps.version.outputs.tarball_url }}" >/dev/null
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.version.outputs.image }}
+          tags: |
+            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=${{ steps.version.outputs.minor }}
+            type=raw,value=${{ steps.version.outputs.major }}
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.title=Mattermost ARM64 Build
+            org.opencontainers.image.description=ARM64 Mattermost image built from official Mattermost releases
+            org.opencontainers.image.vendor=madrobot-collab
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.url=https://github.com/${{ github.repository }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/arm64
+          build-args: |
+            MATTERMOST_VERSION=${{ steps.version.outputs.version }}
+            MATTERMOST_TARBALL_URL=${{ steps.version.outputs.tarball_url }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+
+      - name: Summary
+        shell: bash
+        run: |
+          {
+            echo '## Mattermost ARM64 build result'
+            echo
+            echo "- Version: \\`${{ steps.version.outputs.version }}\\`"
+            echo "- Tarball: ${{ steps.version.outputs.tarball_url }}"
+            echo "- Image: \\`${{ steps.version.outputs.image }}\\`"
+            echo "- Tags pushed: \\`${{ steps.version.outputs.version }}\\`, \\`${{ steps.version.outputs.minor }}\\`, \\`${{ steps.version.outputs.major }}\\`, \\`latest\\`"
+          } >> "$GITHUB_STEP_SUMMARY"
