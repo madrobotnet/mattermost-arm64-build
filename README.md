@@ -23,12 +23,12 @@ ARM64 서버용 Mattermost Team Edition 이미지를 공식 Mattermost 릴리스
 
 워크플로우는 빌드 성공 시 다음 태그를 푸시합니다.
 
-예: `11.5.1` 빌드 시
+예: `11.7.2` 빌드 시
 
-- `ghcr.io/madrobot-collab/mattermost-arm64-build:11.5.1`
-- `ghcr.io/madrobot-collab/mattermost-arm64-build:11.5`
-- `ghcr.io/madrobot-collab/mattermost-arm64-build:11`
-- `ghcr.io/madrobot-collab/mattermost-arm64-build:latest`
+- `ghcr.io/madrobotnet/mattermost-arm64-build:11.7.2`
+- `ghcr.io/madrobotnet/mattermost-arm64-build:11.7`
+- `ghcr.io/madrobotnet/mattermost-arm64-build:11`
+- `ghcr.io/madrobotnet/mattermost-arm64-build:latest`
 
 ## 권장 운영 방식
 
@@ -41,7 +41,7 @@ ARM64 서버용 Mattermost Team Edition 이미지를 공식 Mattermost 릴리스
 서버는 `latest`를 사용해도 됩니다.
 
 ```env
-MATTERMOST_IMAGE=ghcr.io/madrobot-collab/mattermost-arm64-build
+MATTERMOST_IMAGE=ghcr.io/madrobotnet/mattermost-arm64-build
 MATTERMOST_IMAGE_TAG=latest
 ```
 
