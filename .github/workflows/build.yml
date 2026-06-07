@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Mattermost version to build (e.g. 11.5.1). Leave empty to use latest release."
+        description: "Mattermost version to build (e.g. 11.7.2). Leave empty to build the highest stable release."
         required: false
         type: string
   schedule:
@@ -14,8 +14,6 @@ on:
       - main
     paths:
       - Dockerfile
-      - README.md
-      - VERSION
       - .github/workflows/build.yml
 
 permissions:
@@ -43,27 +41,64 @@ jobs:
         run: |
           set -euo pipefail
 
+          normalize_version() {
+            local raw="${1#v}"
+            if [[ ! "$raw" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Invalid Mattermost version: $1" >&2
+              exit 1
+            fi
+            printf '%s\n' "$raw"
+          }
+
+          is_newer_version() {
+            local candidate="$1"
+            local current="$2"
+            [ -z "$current" ] && return 0
+            [ "$candidate" = "$current" ] && return 1
+            [ "$(printf '%s\n%s\n' "$current" "$candidate" | sort -V | tail -n 1)" = "$candidate" ]
+          }
+
+          detect_highest_stable_version() {
+            gh api --paginate 'repos/mattermost/mattermost/releases?per_page=100' \
+              --jq '.[] | select(.draft == false and .prerelease == false and (.tag_name | test("^v?[0-9]+\\.[0-9]+\\.[0-9]+$"))) | .tag_name' \
+              | sed 's/^v//' \
+              | sort -V \
+              | tail -n 1
+          }
+
           CURRENT_VERSION=""
           if [ -f VERSION ]; then
-            CURRENT_VERSION="$(tr -d '[:space:]' < VERSION)"
+            CURRENT_VERSION_RAW="$(tr -d '[:space:]' < VERSION)"
+            if [ -n "$CURRENT_VERSION_RAW" ]; then
+              CURRENT_VERSION="$(normalize_version "$CURRENT_VERSION_RAW")"
+            fi
           fi
 
           if [ -n "${INPUT_VERSION:-}" ]; then
-            VERSION="${INPUT_VERSION#v}"
+            VERSION="$(normalize_version "$INPUT_VERSION")"
             SHOULD_BUILD="true"
             REASON="manual version override"
+          elif [ "$EVENT_NAME" = "push" ] && [ -n "$CURRENT_VERSION" ]; then
+            VERSION="$CURRENT_VERSION"
+            SHOULD_BUILD="true"
+            REASON="build definition changed; rebuilding recorded stable release $VERSION"
           else
-            VERSION="$(gh api repos/mattermost/mattermost/releases/latest --jq '.tag_name' | sed 's/^v//')"
-            if [ "$EVENT_NAME" = "schedule" ] && [ -n "$CURRENT_VERSION" ] && [ "$CURRENT_VERSION" = "$VERSION" ]; then
-              SHOULD_BUILD="false"
-              REASON="scheduled check found no new upstream release"
-            else
+            DETECTED_VERSION="$(detect_highest_stable_version)"
+            VERSION="$(normalize_version "$DETECTED_VERSION")"
+
+            if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
               SHOULD_BUILD="true"
-              if [ -n "$CURRENT_VERSION" ] && [ "$CURRENT_VERSION" != "$VERSION" ]; then
-                REASON="upstream release changed: $CURRENT_VERSION -> $VERSION"
+              REASON="manual build of highest stable upstream release $VERSION"
+            elif is_newer_version "$VERSION" "$CURRENT_VERSION"; then
+              SHOULD_BUILD="true"
+              if [ -n "$CURRENT_VERSION" ]; then
+                REASON="highest stable upstream release increased: $CURRENT_VERSION -> $VERSION"
               else
-                REASON="build triggered by $EVENT_NAME"
+                REASON="no recorded version; building highest stable upstream release $VERSION"
               fi
+            else
+              SHOULD_BUILD="false"
+              REASON="highest stable upstream release ($VERSION) is not newer than recorded version ($CURRENT_VERSION)"
             fi
           fi
 
@@ -118,7 +153,7 @@ jobs:
           labels: |
             org.opencontainers.image.title=Mattermost Team Edition ARM64 Build
             org.opencontainers.image.description=ARM64 Mattermost Team Edition image built from official Mattermost releases
-            org.opencontainers.image.vendor=madrobot-collab
+            org.opencontainers.image.vendor=madrobotnet
             org.opencontainers.image.version=${{ steps.version.outputs.version }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.url=https://github.com/${{ github.repository }}
@@ -163,13 +198,13 @@ jobs:
             echo "- Trigger: ${{ github.event_name }}"
             echo "- Decision: ${{ steps.version.outputs.should_build }}"
             echo "- Reason: ${{ steps.version.outputs.reason }}"
-            echo "- Current recorded version: ${CURRENT:-${{ steps.version.outputs.current_version }}}"
+            echo "- Current recorded version: ${{ steps.version.outputs.current_version }}"
             echo "- Target version: ${{ steps.version.outputs.version }}"
             if [ "${{ steps.version.outputs.should_build }}" = "true" ]; then
               echo "- Tarball: ${{ steps.version.outputs.tarball_url }}"
-              echo "- Image: \\`${{ steps.version.outputs.image }}\\`"
-              echo "- Tags pushed: \\`${{ steps.version.outputs.version }}\\`, \\`${{ steps.version.outputs.minor }}\\`, \\`${{ steps.version.outputs.major }}\\`, \\`latest\\`"
+              echo "- Image: \`${{ steps.version.outputs.image }}\`"
+              echo "- Tags pushed: \`${{ steps.version.outputs.version }}\`, \`${{ steps.version.outputs.minor }}\`, \`${{ steps.version.outputs.major }}\`, \`latest\`"
             else
-              echo '- Build skipped because no new upstream release was detected.'
+              echo '- Build skipped because no higher stable upstream release was detected.'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
