@@ -6,7 +6,7 @@ ARM64 서버용 Mattermost Team Edition 이미지를 공식 Mattermost 릴리스
 
 - 업스트림 기준: `mattermost/mattermost` 릴리스 버전
 - 빌드 소스: `https://releases.mattermost.com/<version>/mattermost-team-<version>-linux-arm64.tar.gz`
-- 배포 대상: `ghcr.io/madrobot-collab/mattermost-arm64-build`
+- 배포 대상: `ghcr.io/madrobotnet/mattermost-arm64-build`
 - 운영 원칙: 서버는 제3자 이미지를 직접 pull하지 않고, 이 저장소가 만든 이미지만 사용
 
 ## 자동 업데이트 동작
